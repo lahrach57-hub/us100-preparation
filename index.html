@@ -41,6 +41,36 @@ function scenarioText(s, d){
   return "";
 }
 
+function newsLabel(d){
+  const c = d.context;
+  if (!c) return na;
+  if (!c.covered) return `${na} (calendrier à jour jusqu'au ${c.coverage_end})`;
+  return c.key.length ? `<b>oui</b> (${c.key.join(", ")})` : "non";
+}
+function contextHTML(d){
+  const c = d.context;
+  let h = `<section class="card"><h2>Contexte</h2>`;
+  if (!c || !c.covered) {
+    h += `<p style="margin:0">Publications du jour : ${na}${c?` (calendrier à jour jusqu'au ${c.coverage_end})`:""}.</p>`;
+  } else {
+    const keys = c.events.filter(e => e.key);
+    const lead = keys.length
+      ? `Jour de news : ${[...new Set(keys.map(e=>e.key))].join(", ")} à ${[...new Set(keys.map(e=>e.paris))].join(", ")} (heure de Paris).`
+      : `Pas de publication majeure (CPI, PPI, emploi, ISM, FOMC, président de la Fed) aujourd'hui.`;
+    h += `<p style="margin:0 0 8px">${lead}</p>`;
+    if (c.events.length) {
+      h += `<table class="years">`;
+      c.events.forEach(e => {
+        const nums = [e.actual!=null?`réel ${e.actual}`:null, e.forecast!=null?`prév. ${e.forecast}`:null, e.previous!=null?`préc. ${e.previous}`:null].filter(Boolean).join(" · ");
+        h += `<tr><td class="num" style="min-width:0">${e.paris}</td><td>${e.key||e.importance===3?"<b>":""}${e.event}${e.key||e.importance===3?"</b>":""}${nums?`<span class="src">${nums}</span>`:""}</td></tr>`;
+      });
+      h += `</table>`;
+    }
+  }
+  h += `<p class="muted">Actualité principale et résultats d'entreprises du soir : ${na}. Calendrier : ${c?c.source:na}${c&&c.covered?`, à jour jusqu'au ${c.coverage_end}`:""}. Heures converties depuis UTC+2 fixe (vérifiées sur les pics de volatilité).</p></section>`;
+  return h;
+}
+
 let statLevel = 2;
 const pc = x => x == null ? na : x.toLocaleString("fr-FR") + " %";
 function cell(s, key){
@@ -53,9 +83,9 @@ function statsHTML(d){
   const S = d.stats, sit = d.situation, L = S.levels[statLevel];
   const rangeTxt = {"dans":"dans le range d'hier","au-dessus":"au-dessus du range d'hier","au-dessous":"au-dessous du range d'hier"}[sit.range];
   let h = `<section class="card" id="stats"><h2>Statistiques du jour</h2>
-    <p class="muted" style="margin-top:0">Situation d'ouverture (provisoire jusqu'à 9h30 NY) : <b>gap ${sit.gap_cat}</b> (${d.gap_pct>0?"+":""}${d.gap_pct.toLocaleString("fr-FR")} %) · ${rangeTxt} · ${sit.mid} du milieu · ${sit.wd} · jour de news : ${na}</p>
+    <p class="muted" style="margin-top:0">Situation d'ouverture (provisoire jusqu'à 9h30 NY) : <b>gap ${sit.gap_cat}</b> (${d.gap_pct>0?"+":""}${d.gap_pct.toLocaleString("fr-FR")} %) · ${rangeTxt} · ${sit.mid} du milieu · ${sit.wd} · jour de news : ${newsLabel(d)}</p>
     <div class="tabs">`;
-  S.levels.forEach((lv,i) => h += `<button class="tab${i===statLevel?" on":""}" data-l="${i}">${i===0?"Toutes":["","A","B","C","D"][i]}</button>`);
+  S.levels.forEach((lv,i) => h += `<button class="tab${i===statLevel?" on":""}" data-l="${i}">${i===0?"Toutes":["","A","B","C","D","E"][i]}</button>`);
   h += `</div><p style="margin:6px 0"><b>${L.label}</b></p>`;
   [["analyse","Analyse"],["verification","Vérification"]].forEach(([k,lab]) => {
     const s = L[k];
@@ -72,7 +102,15 @@ function statsHTML(d){
     <p class="muted">* « atteint » = touché pendant la séance, ou retesté si l'ouverture était déjà au-delà. Comblement : non applicable aux gaps plats. Heures de Paris hors semaines de décalage d'heure d'été (+6 h sur New York).</p>
     <h2 style="margin-top:14px">Année par année · gap ${sit.gap_cat}</h2><div class="scroll"><table class="years"><tr><td><b>Année</b></td><td class="num"><b>Cas</b></td><td class="num"><b>Combl. 50 %</b></td><td class="num"><b>Combl. 100 %</b></td><td class="num"><b>Clôt. > ouv.</b></td></tr>`;
   S.years.forEach(y => h += `<tr${y.year>=2025?' class="verif"':''}><td>${y.year}${y.year>=2025?" <span class='muted'>(vérif.)</span>":""}</td><td class="num">${y.n}</td><td class="num">${pc(y.fill50)}</td><td class="num">${pc(y.fill100)}</td><td class="num">${pc(y.up_day)}</td></tr>`);
-  h += `</table></div><p class="muted">Source : calcul sur votre historique ${P.source}, séances régulières 9h30–16h00 NY, demi-séances exclues, séance du jour non incluse. Analyse = 2020–2024 ; vérification = depuis 2025, jamais utilisée pour fixer les règles. Conditions emboîtées dans un ordre fixé à l'avance (A → D), pas de recherche de combinaison.</p></section>`;
+  h += `</table></div><p class="muted">Source : calcul sur votre historique ${P.source}, séances régulières 9h30–16h00 NY, demi-séances exclues, séance du jour non incluse. Analyse = 2020–2024 ; vérification = depuis 2025, jamais utilisée pour fixer les règles. Conditions emboîtées dans un ordre fixé à l'avance (A → E), pas de recherche de combinaison.</p>`;
+  if (S.news_effect) {
+    const E = S.news_effect;
+    const nr = [["Clôture 16h au-dessus de l'ouverture","up_day"],["Extension moyenne au-dessus","ext_up"],["Extension moyenne au-dessous","ext_dn"],["Gap comblé à 100 %","fill100"],["Plus haut d'hier atteint","touch_hi"],["Plus bas d'hier atteint","touch_lo"]];
+    h += `<h2 style="margin-top:14px">Effet « jour de news » (toutes séances)</h2><div class="scroll"><table class="years"><tr><td></td>${E.map(e=>`<td class="num"><b>${e.label}</b><br><span class="muted">${e.analyse.n} / ${e.verification.n} cas</span></td>`).join("")}</tr>`;
+    nr.forEach(([lab,k]) => h += `<tr><td>${lab}</td>${E.map(e=>`<td class="num">${cell(e.analyse,k)}<br><span class="muted">vérif. ${cell(e.verification,k)}</span></td>`).join("")}</tr>`);
+    h += `</table></div><p class="muted">Jour de news = CPI, PPI, emploi (NFP, taux de chômage), ISM, FOMC ou président de la Fed entre 7h00 et 16h00 NY (liste fixée à l'avance). Valeur du haut : analyse 2020–2024 ; « vérif. » : depuis 2025. Source : ${d.context?d.context.source:na}.</p>`;
+  }
+  h += `</section>`;
   return h;
 }
 function bindTabs(d){
@@ -100,10 +138,10 @@ function render(date){
   if (!d.asof_complete) h += `<div class="banner warn">Données de la nuit incomplètes : dernière bougie à ${d.asof_ny} heure de New York. Les plus haut/bas de la nuit et le gap peuvent encore changer.</div>`;
   if (d.dst_mismatch) h += `<div class="banner warn">Décalage d'heure d'été : la séance US ouvre à <b>${d.open_paris}</b> heure de Paris ce jour-là (au lieu de 15h30).</div>`;
   if (d.short_session) h += `<div class="banner warn">La séance d'hier a été écourtée (jour férié ou demi-séance).</div>`;
-  h += `<div class="banner info">Données : ${d.asof_paris} heure de Paris (${d.asof_ny} New York) · Source : ${P.source} · Ouverture US : ${d.open_paris} (Paris) · Jour de news : ${na}</div>`;
+  h += `<div class="banner info">Données : ${d.asof_paris} heure de Paris (${d.asof_ny} New York) · Source : ${P.source} · Ouverture US : ${d.open_paris} (Paris) · Jour de news : ${newsLabel(d)}</div>`;
 
   // 2. Contexte
-  h += `<section class="card"><h2>Contexte</h2><p class="na" style="margin:0">Non disponible dans cette version (actualités MarketWatch et calendrier macro ajoutés à l'étape suivante).</p></section>`;
+  h += contextHTML(d);
 
   // Situation
   const gcls = d.gap_pts>0?"up":(d.gap_pts<0?"down":"");
