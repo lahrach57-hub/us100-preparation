@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journal US100</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <nav id="nav"></nav>
+  <header><h1>Journal</h1></header>
+  <div id="app"></div>
+</main>
+<script src="data.js"></script>
+<script src="history.js"></script>
+<script src="common.js"></script>
+<script>
+const H = (window.HIST && window.HIST.days) || {};
+const na = '<span class="na">non disponible</span>';
+const f1 = x => x == null ? null : x.toLocaleString("fr-FR",{minimumFractionDigits:1,maximumFractionDigits:1});
+const today = todayParis();
+const todayPrep = window.PREP && window.PREP.days[today];
+const openParis = todayPrep ? todayPrep.open_paris : "15:30";
+
+function verdict(call, out){
+  if (!out || !call) return "";
+  if (call !== "haussier" && call !== "baissier") return `<span class="pill">abstention</span>`;
+  if (out.direction === "égal") return `<span class="pill">égal</span>`;
+  return call === out.direction ? `<span class="pill ok">✓ juste</span>` : `<span class="pill ko">✗ faux</span>`;
+}
+
+function render(){
+  const J = Journal.all();
+  let h = "";
+  // Saisie du jour
+  h += `<section class="card"><h2>Aujourd'hui · ${frShort(today)}</h2>`;
+  if (J[today]) {
+    const e = J[today];
+    h += `<p style="margin:0">Lecture notée : <b>${cap(e.lecture)}</b>${e.conviction?` (conviction ${e.conviction})`:""}${e.niveau?` · niveau clé ${e.niveau}`:""}<br><span class="muted">le ${e.saisi_le}${e.avant_ouverture?"":" · après l'ouverture, ne compte pas"}</span></p>
+      <p><a href="index.html">Voir la préparation du site →</a></p>`;
+  } else if ([0,6].includes(new Date(today+"T12:00:00").getDay())) {
+    h += `<p class="muted" style="margin:0">Pas de séance aujourd'hui.</p>`;
+  } else {
+    h += `<p class="muted" style="margin-top:0">À remplir <b>avant</b> de regarder la préparation du site.</p>` + journalFormHTML(today, openParis);
+  }
+  h += `</section>`;
+
+  // Historique
+  const dates = [...new Set([...Object.keys(J), ...Object.keys(H)])].sort().reverse();
+  h += `<section class="card"><h2>Historique</h2>`;
+  if (!dates.length) h += `<p class="na">Aucune séance enregistrée pour l'instant.</p>`;
+  dates.forEach(ds => {
+    const e = J[ds], rec = H[ds] || {}, p = rec.prediction, o = rec.outcome;
+    if (!e && !p) return; // on n'affiche que les jours suivis
+    h += `<div class="entry"><div class="row"><b>${frShort(ds)}</b>${o?`<span class="${o.direction==="haussier"?"up":(o.direction==="baissier"?"down":"")}">Résultat : ${o.direction} (${o.pts>0?"+":""}${f1(o.pts)} pts)</span>`:`<span class="muted">résultat en attente</span>`}</div>
+      <div class="muted">Ma lecture : ${e?`<b>${e.lecture}</b>${e.conviction?` (${e.conviction})`:""}${e.avant_ouverture?"":" · <i>après l'ouverture</i>"} ${verdict(e.avant_ouverture?e.lecture:null,o)}`:na}</div>
+      <div class="muted">Site : ${p?`<b>${p.label}</b>${p.conviction?` (${p.conviction})`:""} <span class="muted">· figé le ${p.frozen_paris}</span> ${verdict(p.label,o)}`:na}</div>`;
+    if (o) {
+      h += `<div class="muted">Ouverture 9h30 ${f1(o.open)} → clôture 16h ${f1(o.close)} · Niveau déterminant : ${o.determinant.length ? o.determinant.map(x=>`${x.extreme} de séance ${f1(x.price)} (${x.time_paris}) sur « ${x.level} » ${f1(x.level_price)}`).join(" ; ") : "aucun (aucun niveau à moins de 0,1 % du plus haut ou du plus bas)"}</div>`;
+    }
+    if (e && e.note) h += `<div class="muted">Note : ${e.note.replace(/</g,"&lt;")}</div>`;
+    h += `</div>`;
+  });
+  h += `<p class="muted">Résultat (rempli automatiquement) : clôture de 16h00 New York au-dessus ou au-dessous de l'ouverture de 9h30. Source : ${window.PREP ? window.PREP.source : na}.</p></section>`;
+
+  // Sauvegarde
+  h += `<section class="card"><h2>Sauvegarde</h2>
+    <p class="muted" style="margin-top:0">Votre journal est enregistré <b>dans ce navigateur uniquement</b>. Exportez-le régulièrement ; la synchronisation entre téléphone et PC arrivera avec la mise en ligne.</p>
+    <button class="btn sec" id="exp">Exporter (fichier)</button>
+    <label class="btn sec" style="display:inline-block">Importer<input type="file" id="imp" accept=".json" hidden></label></section>`;
+  document.getElementById("app").innerHTML = h;
+  bindJournalForm(today, openParis, render);
+  document.getElementById("exp").onclick = () => {
+    const blob = new Blob([JSON.stringify(Journal.all(), null, 1)], {type:"application/json"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `journal-us100-${today}.json`; a.click();
+  };
+  document.getElementById("imp").onchange = ev => {
+    const file = ev.target.files[0]; if (!file) return;
+    file.text().then(t => {
+      try { const inc = JSON.parse(t); const cur = Journal.all();
+        Object.keys(inc).forEach(k => { if (!cur[k]) cur[k] = inc[k]; }); // ne remplace jamais une lecture existante
+        Journal.replaceAll(cur); render();
+      } catch(e){ alert("Fichier illisible."); }
+    });
+  };
+}
+render();
+</script>
+</body>
+</html>

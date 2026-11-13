@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Préparation US100</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <nav id="nav"></nav>
+  <header>
+    <h1>Préparation US100</h1>
+    <select id="date" aria-label="Séance"></select>
+  </header>
+  <div id="app"></div>
+</main>
+<script src="data.js"></script>
+<script src="history.js"></script>
+<script src="common.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const P = window.PREP;
+const $ = s => document.querySelector(s);
+const f1 = x => x == null ? null : x.toLocaleString("fr-FR",{minimumFractionDigits:1,maximumFractionDigits:1});
+const na = '<span class="na">non disponible</span>';
+const sign = x => (x>0?"+":"") + f1(x);
+const frDate = iso => new Date(iso+"T12:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+const lvl = o => o ? `<b>${f1(o.price)}</b> (${o.label})` : na;
+
+const sel = $("#date");
+P.dates.slice().reverse().forEach(d => { const o=document.createElement("option"); o.value=d; o.textContent=frDate(d); sel.appendChild(o); });
+let chart;
+
+function scenarioText(s, d){
+  const acc = `pendant la première demi-heure (${d.first_half_paris}, heure de Paris)`;
+  if (s.kind==="haussier") return `<b class="t up">Scénario haussier</b>Si le prix est accepté au-dessus de ${lvl(s.trigger)} ${acc}, objectif ${s.target?lvl(s.target):na+" (aucun niveau au-dessus)"} ; invalidation sous ${lvl(s.invalid)}.${s.gap_fill?" Ce scénario correspond aussi au comblement du gap.":""}`;
+  if (s.kind==="baissier") return `<b class="t down">Scénario baissier</b>Si le prix est accepté au-dessous de ${lvl(s.trigger)} ${acc}, objectif ${s.target?lvl(s.target):na+" (aucun niveau au-dessous)"} ; invalidation au-dessus de ${lvl(s.invalid)}.${s.gap_fill?" Ce scénario correspond aussi au comblement du gap.":""}`;
+  if (s.kind==="comblement") return `<b class="t">Comblement du gap (${s.direction})</b>Si le prix est accepté ${s.direction==="baisse"?"au-dessous":"au-dessus"} du ${lvl(s.trigger)} ${acc}, objectif ${lvl(s.target)} ; invalidation ${s.direction==="baisse"?"au-dessus":"au-dessous"} de ${lvl(s.invalid)}.`;
+  if (s.kind==="range") return `<b class="t">Pas de direction</b>Si ${lvl(s.high)} et ${lvl(s.low)} sont tous deux rejetés, le prix tourne entre les deux : pas d'objectif, pas de biais.`;
+  return "";
+}
+
+let statLevel = 2;
+const pc = x => x == null ? na : x.toLocaleString("fr-FR") + " %";
+function cell(s, key){
+  if (!s || !s.n) return na;
+  if (key === "ext_up" || key === "ext_dn") return `${s[key].toLocaleString("fr-FR")} % <span class="muted">(méd. ${s[key+"_med"].toLocaleString("fr-FR")})</span>`;
+  if (key === "high_when" || key === "low_when") { const w = s[key]; return `${w.paris} <span class="muted">(${w.share} % des cas ; 1re heure ${w.first_hour} %, dernière ${w.last_hour} %)</span>`; }
+  return pc(s[key]);
+}
+function statsHTML(d){
+  const S = d.stats, sit = d.situation, L = S.levels[statLevel];
+  const rangeTxt = {"dans":"dans le range d'hier","au-dessus":"au-dessus du range d'hier","au-dessous":"au-dessous du range d'hier"}[sit.range];
+  let h = `<section class="card" id="stats"><h2>Statistiques du jour</h2>
+    <p class="muted" style="margin-top:0">Situation d'ouverture (provisoire jusqu'à 9h30 NY) : <b>gap ${sit.gap_cat}</b> (${d.gap_pct>0?"+":""}${d.gap_pct.toLocaleString("fr-FR")} %) · ${rangeTxt} · ${sit.mid} du milieu · ${sit.wd} · jour de news : ${na}</p>
+    <div class="tabs">`;
+  S.levels.forEach((lv,i) => h += `<button class="tab${i===statLevel?" on":""}" data-l="${i}">${i===0?"Toutes":["","A","B","C","D"][i]}</button>`);
+  h += `</div><p style="margin:6px 0"><b>${L.label}</b></p>`;
+  [["analyse","Analyse"],["verification","Vérification"]].forEach(([k,lab]) => {
+    const s = L[k];
+    if (s.n && s.small) h += `<div class="banner warn">${lab} : seulement ${s.n} cas (moins de 100). Chiffres peu fiables.</div>`;
+  });
+  const A = L.analyse, V = L.verification;
+  const head = s => s.n ? `${s.n} cas<br><span class="muted">${s.from}–${s.to}</span>` : `0 cas`;
+  const rows = [["Gap comblé à 50 %","fill50"],["Gap comblé à 100 %","fill100"],["Plus haut d'hier atteint *","touch_hi"],["Plus bas d'hier atteint *","touch_lo"],
+    ["Extension moyenne au-dessus de l'ouverture","ext_up"],["Extension moyenne au-dessous de l'ouverture","ext_dn"],["Clôture 16h au-dessus de l'ouverture 9h30","up_day"],
+    ["Heure habituelle du plus haut (Paris)","high_when"],["Heure habituelle du plus bas (Paris)","low_when"]];
+  h += `<div class="scroll"><table class="stats"><tr><td></td><td class="num"><b>Analyse</b><br>${head(A)}</td><td class="num"><b>Vérification</b><br>${head(V)}</td></tr>`;
+  rows.forEach(([lab,k]) => h += `<tr><td>${lab}</td><td class="num">${cell(A,k)}</td><td class="num">${cell(V,k)}</td></tr>`);
+  h += `</table></div>
+    <p class="muted">* « atteint » = touché pendant la séance, ou retesté si l'ouverture était déjà au-delà. Comblement : non applicable aux gaps plats. Heures de Paris hors semaines de décalage d'heure d'été (+6 h sur New York).</p>
+    <h2 style="margin-top:14px">Année par année · gap ${sit.gap_cat}</h2><div class="scroll"><table class="years"><tr><td><b>Année</b></td><td class="num"><b>Cas</b></td><td class="num"><b>Combl. 50 %</b></td><td class="num"><b>Combl. 100 %</b></td><td class="num"><b>Clôt. > ouv.</b></td></tr>`;
+  S.years.forEach(y => h += `<tr${y.year>=2025?' class="verif"':''}><td>${y.year}${y.year>=2025?" <span class='muted'>(vérif.)</span>":""}</td><td class="num">${y.n}</td><td class="num">${pc(y.fill50)}</td><td class="num">${pc(y.fill100)}</td><td class="num">${pc(y.up_day)}</td></tr>`);
+  h += `</table></div><p class="muted">Source : calcul sur votre historique ${P.source}, séances régulières 9h30–16h00 NY, demi-séances exclues, séance du jour non incluse. Analyse = 2020–2024 ; vérification = depuis 2025, jamais utilisée pour fixer les règles. Conditions emboîtées dans un ordre fixé à l'avance (A → D), pas de recherche de combinaison.</p></section>`;
+  return h;
+}
+function bindTabs(d){
+  document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+    statLevel = +b.dataset.l; $("#stats").outerHTML = statsHTML(d); bindTabs(d);
+  }));
+}
+function biasHTML(d){
+  const b = d.bias;
+  const cls = b.label==="haussier"?"up":(b.label==="baissier"?"down":"");
+  let h = `<section class="card"><h2>Penchant du jour</h2><p class="bias ${cls}">${b.label.charAt(0).toUpperCase()+b.label.slice(1)}${b.conviction?` <span class="muted">· conviction ${b.conviction}</span>`:""}</p>`;
+  if (b.basis) h += `<p class="muted">Basé sur : ${b.basis}</p>`;
+  h += `<b>Raisons factuelles</b><ul>${b.reasons.map(r=>`<li>${r}</li>`).join("")}</ul>`;
+  if (b.against && b.against.length) h += `<b>Arguments contraires</b><ul>${b.against.map(r=>`<li>${r}</li>`).join("")}</ul>`;
+  h += `<details><summary>Règle utilisée (fixée à l'avance)</summary><p class="muted">Niveau B (gap + position / range d'hier). Haussier si la clôture de 16h dépasse l'ouverture de 9h30 dans au moins 55 % des cas en analyse ET en vérification (moyenne si ≥ 58 % dans les deux et plus de 3 points au-dessus de la moyenne des séances) ; baissier si ≤ 45 % dans les deux ; neutre si entre 45 et 55 % dans les deux ; sinon, ou si moins de 100 cas en analyse ou 30 en vérification : pas de biais exploitable. Jamais de conviction forte.</p></details></section>`;
+  return h;
+}
+
+function render(date){
+  const d = P.days[date];
+  const today = new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Paris"});
+  let h = "";
+  // 1. Bandeau
+  if (date !== today) h += `<div class="banner warn"><b>Mode relecture</b> : séance passée du ${frDate(date)}, pas celle d'aujourd'hui. L'historique s'arrête le ${P.data_last_bar_ny} (heure de New York).</div>`;
+  if (!d.asof_complete) h += `<div class="banner warn">Données de la nuit incomplètes : dernière bougie à ${d.asof_ny} heure de New York. Les plus haut/bas de la nuit et le gap peuvent encore changer.</div>`;
+  if (d.dst_mismatch) h += `<div class="banner warn">Décalage d'heure d'été : la séance US ouvre à <b>${d.open_paris}</b> heure de Paris ce jour-là (au lieu de 15h30).</div>`;
+  if (d.short_session) h += `<div class="banner warn">La séance d'hier a été écourtée (jour férié ou demi-séance).</div>`;
+  h += `<div class="banner info">Données : ${d.asof_paris} heure de Paris (${d.asof_ny} New York) · Source : ${P.source} · Ouverture US : ${d.open_paris} (Paris) · Jour de news : ${na}</div>`;
+
+  // 2. Contexte
+  h += `<section class="card"><h2>Contexte</h2><p class="na" style="margin:0">Non disponible dans cette version (actualités MarketWatch et calendrier macro ajoutés à l'étape suivante).</p></section>`;
+
+  // Situation
+  const gcls = d.gap_pts>0?"up":(d.gap_pts<0?"down":"");
+  h += `<section class="card"><h2>Situation avant l'ouverture</h2><div class="grid">
+    <div class="kpi"><span class="muted">Dernier prix (${d.asof_ny} NY)</span><b>${f1(d.price)}</b></div>
+    <div class="kpi"><span class="muted">Gap vs clôture d'hier</span><b class="${gcls}">${sign(d.gap_pts)} pts · ${d.gap_pct>0?"+":""}${d.gap_pct.toLocaleString("fr-FR")} %</b></div>
+    <div class="kpi"><span class="muted">Position / range d'hier</span><b style="font-size:15px">${d.gap_where}</b></div>
+    <div class="kpi"><span class="muted">Position / milieu d'hier</span><b style="font-size:15px">${d.vs_mid}</b></div>
+  </div><p class="muted" style="margin:8px 0 0">Avant 9h30 New York, le gap est provisoire : calculé avec le dernier prix, il sera fixé par l'ouverture.</p></section>`;
+
+  // 3. Carte des niveaux
+  h += `<section class="card"><h2>Carte des niveaux</h2><div id="chart"></div><p class="muted">Bougies 5 min, heure de Paris. Violet : zones de retournement.</p><table>`;
+  let priceShown = false;
+  d.levels.forEach(l => {
+    if (!priceShown && l.price < d.price){ h += `<tr class="price-row"><td>Prix actuel</td><td class="num">${f1(d.price)}</td><td class="num"></td></tr>`; priceShown = true; }
+    h += `<tr><td>${l.name}<span class="src">${l.source}</span></td><td class="num">${f1(l.price)}</td><td class="num ${l.dist_pts>0?"up":"down"}">${sign(l.dist_pts)}</td></tr>`;
+  });
+  if (!priceShown) h += `<tr class="price-row"><td>Prix actuel</td><td class="num">${f1(d.price)}</td><td></td></tr>`;
+  h += `</table><p class="muted">Niveaux gamma (QQQ) : ${na} dans cette version. Ils seront affichés à part et notés « approximatifs ».</p></section>`;
+
+  // 4. Zones
+  h += `<section class="card"><h2>Zones de retournement</h2>`;
+  if (!d.zones.length) h += `<p class="na">Aucune zone : aucun niveau ne se superpose à moins de 0,1 %.</p>`;
+  d.zones.forEach(z => {
+    const where = z.low > d.price ? "au-dessus" : (z.high < d.price ? "au-dessous" : "prix dans la zone");
+    h += `<div class="zone"><span class="n">${z.count}</span><div><b>${f1(z.low)}${z.high!==z.low?" – "+f1(z.high):""}</b> <span class="muted">(${where})</span><br><span class="muted">${z.names.join(" · ")}</span></div></div>`;
+  });
+  h += `<p class="muted">Zone = au moins 2 niveaux à moins de 0,1 % l'un de l'autre, classées par nombre de niveaux.</p></section>`;
+
+  // Lecture du site masquee tant que ma lecture du jour n'est pas notee (seance du jour, avant l'ouverture)
+  const locked = date === today && beforeOpen(d.open_paris) && !Journal.get(date);
+  if (locked) {
+    h += `<section class="card locked"><h2>D'abord, votre lecture</h2>
+      <p class="muted" style="margin-top:0">Les scénarios, les statistiques et le penchant du site sont masqués tant que vous n'avez pas noté votre propre lecture du jour. Les niveaux ci-dessus restent visibles : ce sont des faits.</p>
+      ${journalFormHTML(date, d.open_paris)}</section>`;
+  } else {
+  const mine = Journal.get(date);
+  if (mine) h += `<div class="banner info">Votre lecture du jour : <b>${cap(mine.lecture)}</b>${mine.conviction?` (conviction ${mine.conviction})`:""}${mine.niveau?` · niveau clé ${mine.niveau}`:""} — notée le ${mine.saisi_le}${mine.avant_ouverture?"":" (après l'ouverture)"}.</div>`;
+  // 5. Scenarios
+  h += `<section class="card"><h2>Scénarios</h2>`;
+  if (!d.all_ok) h += `<p><b>Pas de biais exploitable</b> : un contrôle a échoué (voir plus bas), les scénarios ne sont pas affichés.</p>`;
+  else d.scenarios.forEach(s => h += `<div class="scen ${s.kind}">${scenarioText(s,d)}</div>`);
+  h += `<p class="muted"><b>Acceptation</b> = deux bougies de 5 minutes clôturées au-delà du niveau, puis le retour vers le niveau rejeté. Ce sont des conditions, pas des prévisions.</p></section>`;
+
+  // 6-7
+  h += statsHTML(d) + biasHTML(d);
+  }
+
+  // Controles
+  h += `<section class="card"><h2>Contrôles avant affichage</h2><ul class="checks">`;
+  d.checks.forEach(c => h += `<li><span class="${c.ok?"ok":"ko"}">${c.ok?"✓":"✗"}</span> ${c.name}${c.detail?` <span class="muted">${c.detail.replace(/(\d)\.(\d)/g,"$1,$2")}</span>`:""}</li>`);
+  h += `</ul></section>`;
+
+  h += `<details class="card"><summary>Définitions utilisées</summary><ul class="muted">
+    <li>Instrument : CFD US 100 Cash chez IC Markets (MT5). Pas de settlement officiel : la clôture d'hier est le dernier prix de la bougie 15h59 heure de New York.</li>
+    <li>Séance régulière : 9h30–16h00 heure de New York. Nuit : de 16h00 la veille à 9h29.</li>
+    <li>Semaine précédente : toutes les sessions de la semaine calendaire précédente.</li>
+    <li>Le 50 % du gap n'est pas compté comme niveau si le gap fait moins de 0,1 % (il se confondrait avec la clôture).</li>
+    <li>Fuseau du serveur IC Markets : heure de New York + 7 h (vérifié sur votre historique).</li>
+  </ul><p class="muted">Page générée le ${P.generated_paris} (Paris).</p></details>`;
+
+  $("#app").innerHTML = h;
+  if (locked) bindJournalForm(date, d.open_paris, () => { if (chart){ chart.remove(); chart=null; } render(date); });
+  bindTabs(d);
+  drawChart(d);
+}
+
+function drawChart(d){
+  const el = $("#chart");
+  if (!window.LightweightCharts){ el.innerHTML = `<p class="na">Graphique non disponible (bibliothèque non chargée, vérifiez la connexion internet).</p>`; el.style.height="auto"; return; }
+  const cs = getComputedStyle(document.documentElement);
+  const c = v => cs.getPropertyValue(v).trim();
+  chart = LightweightCharts.createChart(el, {
+    autoSize:true,
+    layout:{background:{color:c("--card")}, textColor:c("--muted")},
+    grid:{vertLines:{color:c("--line")}, horzLines:{color:c("--line")}},
+    timeScale:{timeVisible:true, secondsVisible:false},
+    localization:{locale:"fr-FR", priceFormatter:p=>f1(p)},
+    rightPriceScale:{borderColor:c("--line")}, crosshair:{mode:0}
+  });
+  const s = chart.addCandlestickSeries({upColor:c("--up"),downColor:c("--down"),wickUpColor:c("--up"),wickDownColor:c("--down"),borderVisible:false});
+  s.setData(d.candles.map(k=>({time:k[0],open:k[1],high:k[2],low:k[3],close:k[4]})));
+  const inZone = p => d.zones.some(z => p>=z.low && p<=z.high);
+  const short = {"close":"Clôt.","rth_hi":"PH hier","rth_lo":"PB hier","rth_mid":"Mil.","on_hi":"PH nuit","on_lo":"PB nuit","gap_mid":"50% gap","wk_hi":"PH sem.","wk_lo":"PB sem."};
+  d.levels.forEach(l => s.createPriceLine({price:l.price, color: inZone(l.price)?c("--zone"):c("--muted"), lineWidth: inZone(l.price)?2:1, lineStyle: l.key.startsWith("wk")?2:0, axisLabelVisible:true, title:short[l.key]||""}));
+  chart.timeScale().fitContent();
+}
+
+sel.addEventListener("change", e => { if (chart){ chart.remove(); chart=null; } render(e.target.value); });
+render(P.dates[P.dates.length-1]);
+</script>
+</body>
+</html>

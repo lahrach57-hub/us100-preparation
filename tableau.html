@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau de bord US100</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <nav id="nav"></nav>
+  <header><h1>Tableau de bord</h1></header>
+  <div id="app"></div>
+</main>
+<script src="data.js"></script>
+<script src="history.js"></script>
+<script src="common.js"></script>
+<script>
+const H = (window.HIST && window.HIST.days) || {};
+const MIN = 60;
+const pc = x => x == null ? '<span class="na">non disponible</span>' : x.toLocaleString("fr-FR",{maximumFractionDigits:1}) + " %";
+
+// Intervalle de confiance a 95 % (methode de Wilson)
+function wilson(k, n){
+  if (!n) return null;
+  const z = 1.96, p = k/n, d = 1 + z*z/n;
+  const c = (p + z*z/(2*n)) / d, m = z*Math.sqrt(p*(1-p)/n + z*z/(4*n*n)) / d;
+  return [Math.max(0,(c-m)*100), Math.min(100,(c+m)*100)];
+}
+function score(pairs){ // pairs: [call, direction]
+  let dec = 0, ok = 0, abst = 0;
+  pairs.forEach(([c, dir]) => {
+    if (dir === "égal") return;
+    if (c !== "haussier" && c !== "baissier") { abst++; return; }
+    dec++; if (c === dir) ok++;
+  });
+  return { dec, ok, abst, rate: dec ? ok/dec*100 : null, ci: wilson(ok, dec) };
+}
+
+const J = Journal.all();
+const tracked = Object.keys(H).filter(ds => H[ds].outcome && (H[ds].prediction || J[ds])).sort();
+const site = score(tracked.filter(ds => H[ds].prediction).map(ds => [H[ds].prediction.label, H[ds].outcome.direction]));
+const me = score(tracked.filter(ds => J[ds] && J[ds].avant_ouverture).map(ds => [J[ds].lecture, H[ds].outcome.direction]));
+const naive = score(tracked.map(ds => [H[ds].outcome.night, H[ds].outcome.direction]));
+const n = tracked.length;
+
+let h = "";
+if (n < MIN) h += `<div class="banner warn"><b>${n} séance${n>1?"s":""} suivie${n>1?"s":""} sur ${MIN}.</b> Trop tôt pour conclure : les chiffres ci-dessous sont affichés à titre indicatif et changeront beaucoup.</div>`;
+h += `<section class="card"><h2>Taux de réussite</h2>`;
+const row = (lab, s, note) => `<div class="entry"${n<MIN?' style="opacity:.65"':''}><div class="row"><b>${lab}</b><b class="bigrate">${pc(s.rate)}</b></div>
+  <div class="muted">${note}</div>
+  <div class="muted">${s.ok} juste${s.ok>1?"s":""} sur ${s.dec} jugée${s.dec>1?"s":""} · fourchette 95 % : ${s.ci?`${Math.round(s.ci[0])}–${Math.round(s.ci[1])} %`:"—"} · ${s.abst} abstention${s.abst>1?"s":""}</div></div>`;
+h += row("Site", site, "Penchant figé avant l'ouverture");
+h += row("Moi", me, "Lectures notées avant l'ouverture");
+h += `<div class="entry"><div class="row"><b>Hasard</b><b class="bigrate">50 %</b></div><div class="muted">Pile ou face</div></div>`;
+h += row("Règle naïve", naive, "Même sens que la nuit (prix de 9h29 comparé à la clôture d'hier)");
+h += `
+  <p class="muted">Une lecture « juste » = haussier et clôture 16h au-dessus de l'ouverture 9h30, ou baissier et clôture au-dessous. « Neutre » et « pas de biais exploitable » sont des abstentions, comptées à part. La fourchette 95 % montre l'incertitude : tant qu'elle contient 50 %, on ne peut pas distinguer le résultat du hasard.</p></section>`;
+
+const ref = (window.HIST && window.HIST.naive_ref) || {};
+h += `<section class="card"><h2>Repère historique</h2><p style="margin:0">Règle naïve sur votre historique : ${pc(ref.analyse && ref.analyse.rate)} de réussite en 2020–2024 (${ref.analyse ? ref.analyse.n : "?"} séances) et ${pc(ref.verification && ref.verification.rate)} depuis 2025 (${ref.verification ? ref.verification.n : "?"} séances).</p>
+  <p class="muted">Calcul sur ${window.PREP ? window.PREP.source : "l'historique"}, ouverture 9h30 comparée à la clôture de la veille.</p></section>`;
+h += `<section class="card"><h2>Séances suivies</h2><p style="margin:0">${n} séance${n>1?"s":""} avec résultat${tracked.length?` (du ${frShort(tracked[0])} au ${frShort(tracked[tracked.length-1])})`:""}. Les séances en relecture ne comptent jamais : seul un penchant publié avant l'ouverture est pris en compte.</p></section>`;
+document.getElementById("app").innerHTML = h;
+</script>
+</body>
+</html>
