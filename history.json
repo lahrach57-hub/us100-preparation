@@ -346,5 +346,14 @@
    "night": "baissier",
    "source": "IC Markets MT5, US100 Cash (USTEC), bougies 1 min, bougies 9:30 et 15:59 heure de New York"
   }
+ },
+ "2026-11-13": {
+  "prediction": {
+   "label": "haussier",
+   "conviction": "faible",
+   "basis": "Gap petit haussier + ouverture dans le range d'hier",
+   "data_asof_paris": "13/11 13:26",
+   "frozen_paris": "13/11/2026 14:36"
+  }
  }
 }
