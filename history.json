@@ -374,5 +374,18 @@
    "night": "haussier",
    "source": "IC Markets MT5, US100 Cash (USTEC), bougies 1 min, bougies 9:30 et 15:59 heure de New York"
   }
+ },
+ "2026-11-16": {
+  "outcome": {
+   "open": 27584.7,
+   "close": 27204.6,
+   "high": 27629.7,
+   "low": 27148.2,
+   "pts": -380.1,
+   "direction": "baissier",
+   "determinant": [],
+   "night": "baissier",
+   "source": "IC Markets MT5, US100 Cash (USTEC), bougies 1 min, bougies 9:30 et 15:59 heure de New York"
+  }
  }
 }
