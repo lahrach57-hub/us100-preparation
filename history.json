@@ -395,6 +395,17 @@
    "basis": "Gap petit haussier + ouverture dans le range d'hier",
    "data_asof_paris": "17/11 14:34",
    "frozen_paris": "17/11/2026 14:37"
+  },
+  "outcome": {
+   "open": 27256.6,
+   "close": 27002.0,
+   "high": 27265.6,
+   "low": 26576.5,
+   "pts": -254.6,
+   "direction": "baissier",
+   "determinant": [],
+   "night": "haussier",
+   "source": "IC Markets MT5, US100 Cash (USTEC), bougies 1 min, bougies 9:30 et 15:59 heure de New York"
   }
  }
 }
