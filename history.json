@@ -457,6 +457,17 @@
    "basis": null,
    "data_asof_paris": "20/11 14:34",
    "frozen_paris": "20/11/2026 14:36"
+  },
+  "outcome": {
+   "open": 26229.7,
+   "close": 25065.6,
+   "high": 26420.4,
+   "low": 24899.7,
+   "pts": -1164.1,
+   "direction": "baissier",
+   "determinant": [],
+   "night": "baissier",
+   "source": "IC Markets MT5, US100 Cash (USTEC), bougies 1 min, bougies 9:30 et 15:59 heure de New York"
   }
  }
 }
